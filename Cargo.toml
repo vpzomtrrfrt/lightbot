@@ -1,0 +1,11 @@
+[package]
+name = "lightbot"
+version = "0.1.0"
+authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
+
+[dependencies]
+lightify = { git = "https://github.com/vpzomtrrfrt/lightify" }
+tokio-core = "0.1.15"
+futures = "0.1.18"
+rix = "0.1.0"
+css-color-parser = "0.1.2"
