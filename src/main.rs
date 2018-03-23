@@ -3,15 +3,19 @@ extern crate lightify;
 extern crate tokio_core;
 extern crate futures;
 extern crate css_color_parser;
+extern crate rscam;
+extern crate mime;
 
 use futures::{Future, Stream};
 use css_color_parser::Color;
 use lightify::Gateway;
+use std::str::FromStr;
 
 fn main() {
     let host = std::env::var("MATRIX_HOST").expect("Missing MATRIX_HOST");
     let token = std::env::var("MATRIX_TOKEN").expect("Missing MATRIX_TOKEN");
     let gateway = std::env::var("GATEWAY_HOST").expect("Missing GATEWAY_HOST");
+    let camera_path = std::env::var("CAMERA_PATH").unwrap_or_else(|_| "/dev/video0".to_owned());
 
     let light_address = {
         let vec: Vec<_> = std::env::var("LIGHT_ADDRESS").expect("Missing LIGHT_ADDRESS")
@@ -23,12 +27,25 @@ fn main() {
         addr
     };
 
-    let (tx, rx) = std::sync::mpsc::channel::<Color>();
+    let (color_tx, color_rx) = std::sync::mpsc::channel::<(String, Color)>();
+    let (mut image_tx, image_rx) = futures::sync::mpsc::channel::<(String, rscam::Frame)>(2);
+
+    let mut core = tokio_core::reactor::Core::new().unwrap();
+    let handle = core.handle();
+    let handle2 = core.handle();
 
     std::thread::spawn(move || {
+        let mut camera = rscam::new(&camera_path).unwrap();
+        camera.start(&rscam::Config {
+            interval: (1, 30),
+            format: b"MJPG",
+            resolution: (640, 480),
+            ..Default::default()
+        }).unwrap();
+
         let mut conn = std::net::TcpStream::connect(gateway).unwrap();
 
-        for color in rx {
+        for (room, color) in color_rx {
             println!("Color: {}", color);
             let r = color.r;
             let g = color.g;
@@ -36,16 +53,16 @@ fn main() {
             let w = r.min(g).min(b);
 
             match conn.set_rgbw(&light_address, &[r, g, b, w]) {
-                Ok(_) => {},
+                Ok(_) => {
+                    let frame = camera.capture().unwrap();
+                    image_tx.try_send((room, frame)).unwrap();
+                },
                 Err(e) => eprintln!("{:?}", e)
             }
         }
     });
 
-    let mut core = tokio_core::reactor::Core::new().unwrap();
-    let handle = core.handle();
-
-    let task = rix::client::sync_stream(
+    let task1 = rix::client::sync_stream(
         &host,
         &token,
         &handle)
@@ -60,7 +77,7 @@ fn main() {
                             if body.starts_with(PREFIX) {
                                 let request = body[PREFIX.len()..].trim();
                                 match request.parse::<Color>() {
-                                    Ok(color) => tx.send(color).unwrap(),
+                                    Ok(color) => color_tx.send((room.to_owned(), color)).unwrap(),
                                     Err(e) => eprintln!("{:?}", e)
                                 }
                             }
@@ -69,7 +86,21 @@ fn main() {
                 }
             }
             Ok(())
-        });
+        })
+    .map_err(|e| eprintln!("{:?}", e));
 
-    core.run(task).unwrap();
+    let task2 = image_rx.for_each(move |(room, frame)| {
+        let handle = handle2.clone();
+        let room = room.clone();
+        let token = token.clone();
+        let host = host.clone();
+        let frame = frame.to_vec();
+        rix::client::media::upload(&host, &token, &handle2, mime::Mime::from_str("image/jpeg").unwrap(), "frame.jpg", frame)
+            .and_then(move |url| {
+                rix::client::send_image(&host, &token, &handle, &room, &url, "frame.jpg")
+            })
+        .map_err(|e| eprintln!("{:?}", e))
+    });
+
+    core.run(task1.join(task2)).unwrap();
 }
