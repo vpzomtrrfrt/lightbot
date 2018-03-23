@@ -7,5 +7,5 @@ authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
 lightify = { git = "https://github.com/vpzomtrrfrt/lightify" }
 tokio-core = "0.1.15"
 futures = "0.1.18"
-rix = "0.1.0"
+rix = "0.2.0"
 css-color-parser = "0.1.2"

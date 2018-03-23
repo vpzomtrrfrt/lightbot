@@ -14,12 +14,12 @@ fn main() {
     let gateway = std::env::var("GATEWAY_HOST").expect("Missing GATEWAY_HOST");
 
     let light_address = {
-        let light_address_vec = std::env::var("LIGHT_ADDRESS").expect("Missing LIGHT_ADDRESS")
+        let vec: Vec<_> = std::env::var("LIGHT_ADDRESS").expect("Missing LIGHT_ADDRESS")
             .split(":")
-            .map(|x| x.parse().unwrap())
-            .collect::<Vec<u8>>();
+            .map(|x| u8::from_str_radix(x, 16).unwrap())
+            .collect();
         let mut addr = [0; 8];
-        addr.clone_from_slice(&light_address_vec);
+        addr.clone_from_slice(&vec);
         addr
     };
 
