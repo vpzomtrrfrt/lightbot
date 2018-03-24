@@ -5,11 +5,13 @@ extern crate futures;
 extern crate css_color_parser;
 extern crate rscam;
 extern crate mime;
+extern crate image;
 
 use futures::{Future, Stream};
 use css_color_parser::Color;
 use lightify::Gateway;
 use std::str::FromStr;
+use std::io::Read;
 
 fn main() {
     let host = std::env::var("MATRIX_HOST").expect("Missing MATRIX_HOST");
@@ -94,7 +96,17 @@ fn main() {
         let room = room.clone();
         let token = token.clone();
         let host = host.clone();
-        let frame = frame.to_vec();
+        {
+            let frame = image::load_from_memory(&frame[..]).unwrap();
+            let mut file = std::fs::File::create("frame.jpg").unwrap();
+            frame.save(&mut file, image::JPEG).unwrap();
+        }
+        let frame = {
+            let mut file = std::fs::File::open("frame.jpg").unwrap();
+            let mut vec = Vec::new();
+            file.read_to_end(&mut vec).unwrap();
+            vec
+        };
         rix::client::media::upload(&host, &token, &handle2, mime::Mime::from_str("image/jpeg").unwrap(), "frame.jpg", frame)
             .and_then(move |url| {
                 rix::client::send_image(&host, &token, &handle, &room, &url, "frame.jpg")
